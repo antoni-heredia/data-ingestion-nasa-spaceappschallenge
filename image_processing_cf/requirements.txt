@@ -1,4 +1,5 @@
-pydantic==1.9.2
+pydantic
 functions-framework
 requests
 google-cloud-aiplatform
+google-cloud-storage

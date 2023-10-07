@@ -1,6 +1,6 @@
 import json
 import os
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from pydantic.tools import parse_obj_as
 
 import functions_framework
@@ -9,15 +9,19 @@ import vertexai
 from vertexai.language_models import ChatModel, InputOutputTextPair
 import google.auth
 import google.auth.transport.requests
+from google.cloud import storage
 
 URL = "https://us-central1-aiplatform.googleapis.com/v1/projects/round-ring-401308/locations/us-central1/publishers/google/models/imagetext:predict"
 METHOD = "POST"
 
-IMAGE_URI = "gs://enviroalert-processing/055d42f4-60f6-46f8-83b6-a62835885847/source/forest-fire-432870_1280.jpg"
-
 
 class RequestModel(BaseModel):
-    uri_source: str
+    author: str = Field(None, title="Author of the image")
+    latitude: float = Field(..., title="Latitud of the image")
+    longitude: float = Field(..., title="Longitud of the image")
+    fire_type: str = Field(None, title="Type of fire")
+    radius: float = Field(None, title="Radius of the fire")
+    labels: str = Field(None, title="Labels of the image")
 
 
 def request_caption(_data):
@@ -25,7 +29,7 @@ def request_caption(_data):
 
     # creds.valid is False, and creds.token is None
     # Need to refresh credentials to populate those
-
+    print(_data)
     auth_req = google.auth.transport.requests.Request()
     creds.refresh(auth_req)
     access_token = creds.token
@@ -59,68 +63,96 @@ def request_check_bison(_data):
     return response_data
 
 
+def add_row_to_bigquery(_data, image_url):
+    from google.cloud import bigquery
+    import datetime
+
+    client = bigquery.Client()
+    dataset_id = "fires"
+    table_id = "data_user"
+    dataset_ref = client.dataset(dataset_id)
+    table_ref = dataset_ref.table(table_id)
+    table = client.get_table(table_ref)  # API request
+    timestamp = datetime.datetime.now()
+    rows_to_insert = [
+        (
+            f"{_data['fire_type']}",
+            f"{_data['latitude']}",
+            f"{_data['longitude']}",
+            f"{_data['labels']}",
+            f"{_data['author']}",
+            f"{timestamp}",
+            f"{_data['radius']}",
+            image_url,
+        ),
+    ]
+    errors = client.insert_rows(table, rows_to_insert)  # API request
+    if errors == []:
+        print("New rows have been added.")
+    else:
+        print("Encountered errors while inserting rows: {}".format(errors))
+
+
 def handle_event(request):
-    # request_json = request.get_json(silent=True)
-    request_json = request
+    # Verifica si se proporciona un archivo 'imagen' en la solicitud
+    if "data" not in request.files:
+        return "The data is not provider", 400
+    data = request.files["data"].read()
+    request_json = json.loads(data)
     try:
         request_model = parse_obj_as(RequestModel, request_json)
         print(f"Starting with the next context:{request_model}")
     except Exception as e:
+        print(e)
         return str(e), 400
 
-
- # Verifica que la solicitud sea una solicitud POST
-    if request.method != 'POST':
-        return 'La solicitud debe ser un POST', 400
+    # Verifica que la solicitud sea una solicitud POST
+    if request.method != "POST":
+        return "La solicitud debe ser un POST", 400
 
     # Verifica si se proporciona un archivo 'imagen' en la solicitud
-    if 'imagen' not in request.files:
-        return 'No se proporcionó ninguna imagen', 400
+    if "imagen" not in request.files:
+        return "No se proporcionó ninguna imagen", 400
 
     # Obtiene el archivo de la solicitud
-    imagen = request.files['imagen']
+    imagen = request.files["imagen"]
 
     # Verifica que el archivo sea una imagen (puedes implementar una validación más robusta aquí)
-    if not imagen.content_type.startswith('image/'):
-        return 'El archivo no es una imagen válida', 400
+    if not imagen.content_type.startswith("image/"):
+        return "El archivo no es una imagen válida", 400
 
     # Obtiene el nombre de archivo original
     nombre_archivo = imagen.filename
 
     # Define el nombre del bucket y la ruta donde se guardará la imagen en Cloud Storage
-    bucket_name = 'enviroalert-processing'
-    ruta_en_storage = 'images/' + nombre_archivo
+    bucket_name = "enviroalert-processing"
+    ruta_en_storage = "images/" + nombre_archivo
 
+    # Instantiates a client
+    storage_client = storage.Client()
     # Sube la imagen a Cloud Storage
     bucket = storage_client.bucket(bucket_name)
     blob = bucket.blob(ruta_en_storage)
     blob.upload_from_string(imagen.read(), content_type=imagen.content_type)
 
-    # Retorna la URL de la imagen en Cloud Storage
-    imagen_url = f'https://storage.googleapis.com/{bucket_name}/{ruta_en_storage}'
-    return f'Imagen guardada en {imagen_url}', 200
-
+    print("Imagen subida a Cloud Storage: ", blob.public_url)
 
     json_data = {
         "instances": [
             {
                 "image": {
-                    "gcsUri": request_model.uri_source,
+                    "gcsUri": f"gs://{bucket_name}/{ruta_en_storage}",
                 }
             },
         ],
         "parameters": {
             "sampleCount": 1,
-            "storageUri": "gs://enviroalert-processing/055d42f4-60f6-46f8-83b6-a62835885847/response.txt",
+            "storageUri": "gs://enviroalert-processing/055d42f4-60f6-46f8-83b6-a62835885847/",
             "language": "en",
         },
     }
     repsponse = request_caption(json_data)
-    response = request_check_bison(response)
-
+    response_data = request_check_bison(repsponse)
+    if response_data["fire"]:
+        add_row_to_bigquery(request_model.dict(), blob.public_url)
     return response_data
-
-
-if __name__ == "__main__":
-    data = {"uri_source": IMAGE_URI}
-    handle_event(data)
