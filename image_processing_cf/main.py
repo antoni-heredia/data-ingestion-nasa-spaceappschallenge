@@ -100,7 +100,7 @@ def handle_event(request):
     request_json = json.loads(data)
     try:
         request_model = parse_obj_as(RequestModel, request_json)
-        print(f"Starting with the next context:{requeImagen subida a Cloud Storagest_model}")
+        print(f"Starting with the next context:{request_model}")
     except Exception as e:
         print(e)
         return str(e), 400
@@ -114,7 +114,7 @@ def handle_event(request):
     imagen = request.files["imagen"]
 
     if not imagen.content_type.startswith("image/"):
-        return "El archivo no es una imagen válida", 400
+        return "The file not has correct format", 400
 
     nombre_archivo = imagen.filename
 
