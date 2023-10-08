@@ -17,8 +17,8 @@ METHOD = "POST"
 
 class RequestModel(BaseModel):
     author: str = Field(None, title="Author of the image")
-    latitude: float = Field(..., title="Latitud of the image")
-    longitude: float = Field(..., title="Longitud of the image")
+    latitude: float = Field(..., title="Latitude of the image")
+    longitude: float = Field(..., title="Longitude of the image")
     fire_type: str = Field(None, title="Type of fire")
     radius: float = Field(None, title="Radius of the fire")
     labels: str = Field(None, title="Labels of the image")
@@ -29,7 +29,6 @@ def request_caption(_data):
 
     # creds.valid is False, and creds.token is None
     # Need to refresh credentials to populate those
-    print(_data)
     auth_req = google.auth.transport.requests.Request()
     creds.refresh(auth_req)
     access_token = creds.token
@@ -55,7 +54,7 @@ def request_check_bison(_data):
         "top_k": 40,
     }
     chat = chat_model.start_chat(
-        context="""Dado una frase determinar si se esta hablando de un incendio: Salida: {\"fire\":true/false}""",
+        context="""Given a sentence, determine if we are talking about a fire. Output: {\"fire\":true/false}""",
     )
     response = chat.send_message(f"""{_data.json()['predictions'][0]}""", **parameters)
     response_data = json.loads(str(response))
@@ -94,48 +93,39 @@ def add_row_to_bigquery(_data, image_url):
 
 
 def handle_event(request):
-    # Verifica si se proporciona un archivo 'imagen' en la solicitud
+    # Check if the request has the correct format
     if "data" not in request.files:
         return "The data is not provider", 400
     data = request.files["data"].read()
     request_json = json.loads(data)
     try:
         request_model = parse_obj_as(RequestModel, request_json)
-        print(f"Starting with the next context:{request_model}")
+        print(f"Starting with the next context:{requeImagen subida a Cloud Storagest_model}")
     except Exception as e:
         print(e)
         return str(e), 400
 
-    # Verifica que la solicitud sea una solicitud POST
     if request.method != "POST":
-        return "La solicitud debe ser un POST", 400
+        return "The method of the request must be POST", 400
 
-    # Verifica si se proporciona un archivo 'imagen' en la solicitud
     if "imagen" not in request.files:
-        return "No se proporcionó ninguna imagen", 400
+        return "Image not provide", 400
 
-    # Obtiene el archivo de la solicitud
     imagen = request.files["imagen"]
 
-    # Verifica que el archivo sea una imagen (puedes implementar una validación más robusta aquí)
     if not imagen.content_type.startswith("image/"):
         return "El archivo no es una imagen válida", 400
 
-    # Obtiene el nombre de archivo original
     nombre_archivo = imagen.filename
 
-    # Define el nombre del bucket y la ruta donde se guardará la imagen en Cloud Storage
     bucket_name = "enviroalert-processing"
     ruta_en_storage = "images/" + nombre_archivo
-
-    # Instantiates a client
     storage_client = storage.Client()
-    # Sube la imagen a Cloud Storage
     bucket = storage_client.bucket(bucket_name)
     blob = bucket.blob(ruta_en_storage)
     blob.upload_from_string(imagen.read(), content_type=imagen.content_type)
 
-    print("Imagen subida a Cloud Storage: ", blob.public_url)
+    print("Image uploaded with the next public url: ", blob.public_url)
 
     json_data = {
         "instances": [
@@ -147,7 +137,6 @@ def handle_event(request):
         ],
         "parameters": {
             "sampleCount": 1,
-            "storageUri": "gs://enviroalert-processing/055d42f4-60f6-46f8-83b6-a62835885847/",
             "language": "en",
         },
     }
@@ -155,4 +144,5 @@ def handle_event(request):
     response_data = request_check_bison(repsponse)
     if response_data["fire"]:
         add_row_to_bigquery(request_model.dict(), blob.public_url)
+
     return response_data

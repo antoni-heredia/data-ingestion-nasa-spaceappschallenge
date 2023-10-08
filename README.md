@@ -24,16 +24,16 @@ functions-framework --target=handle_event
 ### Local
 ```bash
 curl -X POST -H "Content-Type: multipart/form-data" \
-  -F "imagen=@imagen.jpeg" \
-  -F "data=@datos.json" \
+  -F "imagen=@data/image.jpg" \
+  -F "data=@data/example_data.json" \
    http://localhost:8080
 ```
 ### Cloud
 
 ```bash
 curl -X POST -H "Content-Type: multipart/form-data" \
-  -F "imagen=@imagen.jpeg" \
-  -F "data=@datos.json" \
+  -F "imagen=@data/image.jpg" \
+  -F "data=@data/example_data.json" \
    https://europe-west1-round-ring-401308.cloudfunctions.net/image_processing
 ```
 
